@@ -8,7 +8,6 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
-	"sync"
 	"time"
 )
 
@@ -37,7 +36,7 @@ var (
 type IPRangeList struct {
 	Ips           []*net.IPAddr
 	unusedIpCount int
-	wg            sync.WaitGroup
+	delays        []IPDelay
 }
 
 func init() {
@@ -50,6 +49,7 @@ func CreateData() *IPRangeList {
 	return &IPRangeList{
 		Ips:           ips,
 		unusedIpCount: 0,
+		delays:        []IPDelay{},
 	}
 }
 
