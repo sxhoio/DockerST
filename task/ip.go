@@ -2,9 +2,13 @@ package task
 
 import (
 	"bufio"
+	"encoding/json"
+	"fmt"
+	"io"
 	"log"
 	"math/rand"
 	"net"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -14,12 +18,31 @@ import (
 const defaultInputFile = "ip.txt"
 
 var (
+	IPCidrApi = "https://api.cloudflare.com/client/v4/ips"
+	Ipv4Cidr  = []string{
+		"173.245.48.0/20",
+		"103.21.244.0/22",
+		"103.22.200.0/22",
+		"103.31.4.0/22",
+		"141.101.64.0/18",
+		"108.162.192.0/18",
+		"190.93.240.0/20",
+		"188.114.96.0/20",
+		"197.234.240.0/22",
+		"198.41.128.0/17",
+		"162.158.0.0/15",
+		"104.16.0.0/13",
+		"104.24.0.0/14",
+		"172.64.0.0/13",
+		"131.0.72.0/22",
+	}
 	// TestAll test all ip
 	TestAll = false
 	// IPFile is the filename of IP Rangs
 	IPFile  = defaultInputFile
 	IPText  string
 	randGen *rand.Rand
+	IsOff   bool
 )
 
 func InitRandSeed() {
@@ -166,7 +189,7 @@ func loadIPRanges() []*net.IPAddr {
 		}
 	} else { // 从文件中获取 IP 段数据
 		if IPFile == "" {
-			IPFile = defaultInputFile
+			return ToNetAddr()
 		}
 		file, err := os.Open(IPFile)
 		if err != nil {
@@ -190,6 +213,70 @@ func loadIPRanges() []*net.IPAddr {
 			} else {
 				ranges.chooseIPv6()
 			}
+		}
+	}
+	return ranges.ips
+}
+
+func ToNetAddr() []*net.IPAddr {
+	ranges := newIPRanges()
+	for _, v := range Ipv4Cidr {
+		line := strings.TrimSpace(v)
+		if line == "" {
+			continue
+		}
+		ranges.parseCIDR(line)
+		if isIPv4(line) {
+			ranges.chooseIPv4()
+		} else {
+			ranges.chooseIPv6()
+		}
+	}
+	if IsOff {
+		return ranges.ips
+	}
+	// 获取在线IPv4 CIDR列表
+	resp, err := http.Get(IPCidrApi)
+	if err != nil {
+		fmt.Println("获取在线列表失败，正在使用内置列表")
+		return ranges.ips
+	}
+	defer func(Body io.ReadCloser) {
+		_ = Body.Close()
+	}(resp.Body)
+
+	// 读取响应主体
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Println("获取在线列表失败，正在使用内置列表")
+		return ranges.ips
+	}
+
+	// 解析JSON数据
+	var data struct {
+		Result struct {
+			IPv4CIDRs []string `json:"ipv4_cidrs"`
+		} `json:"result"`
+		Success bool `json:"success"`
+	}
+
+	if err = json.Unmarshal(body, &data); err != nil || !data.Success {
+		fmt.Println("获取在线列表失败，正在使用内置列表")
+		return ranges.ips
+	}
+
+	fmt.Println("获取在线列表成功，正在使用在线列表")
+	ranges = newIPRanges()
+	for _, v := range data.Result.IPv4CIDRs {
+		line := strings.TrimSpace(v)
+		if line == "" {
+			continue
+		}
+		ranges.parseCIDR(line)
+		if isIPv4(line) {
+			ranges.chooseIPv4()
+		} else {
+			ranges.chooseIPv6()
 		}
 	}
 	return ranges.ips
