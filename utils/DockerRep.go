@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"runtime"
 	"strings"
 )
@@ -16,9 +17,9 @@ var (
 func (s DownloadSpeedSet) DockerSet() {
 	// 选择最优的节点
 	bestIP := s[0].IP
-	bestSpeed := s[0].DownloadSpeed
+	bestSpeed := convertToString(s)[0][5]
 	// 自动优选节点 最高速度为 0 时，不进行优选
-	if bestSpeed == 0 {
+	if bestSpeed == "0" {
 		fmt.Println("\n[信息] 未找到最优节点，跳过优选节点。")
 		return
 	} else {
@@ -125,7 +126,18 @@ func writeHostsFile(hostsFilePath, bestIP string) error {
 	return nil
 }
 
+// isDockerInstalled 检查Docker是否安装
+func isDockerInstalled() bool {
+	cmd := exec.Command("docker", "version")
+	err := cmd.Run()
+	return err == nil
+}
+
 func SetDockerAccelerator(dockerUrl string) error {
+	if !isDockerInstalled() {
+		return fmt.Errorf("docker 未安装")
+	}
+
 	system := runtime.GOOS
 	var err error
 
@@ -144,6 +156,38 @@ func SetDockerAccelerator(dockerUrl string) error {
 		return fmt.Errorf("设置 Docker 加速器失败: %w", err)
 	}
 	fmt.Println("\n[信息] Docker 加速器已设置为：", dockerUrl)
+	// 询问是否重启 Docker 服务
+	fmt.Print("\n[提示] 是否重启 Docker 服务？(y/n): ")
+	var input string
+	_, _ = fmt.Scanln(&input)
+	if strings.ToLower(input) == "y" {
+		err = RestartDocker()
+		if err != nil {
+			return fmt.Errorf("重启 Docker 服务失败: %w", err)
+		}
+	}
+	return nil
+}
+
+func RestartDocker() error {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("powershell", "Restart-Service", "docker")
+	case "darwin":
+		cmd = exec.Command("brew", "services", "restart", "docker")
+	case "linux":
+		cmd = exec.Command("sudo", "service", "docker", "restart")
+	default:
+		return fmt.Errorf("不支持的操作系统：%s", runtime.GOOS)
+	}
+
+	err := cmd.Run()
+	if err != nil {
+		return fmt.Errorf("重启 Docker 服务失败: %w", err)
+	}
+
+	fmt.Println("Docker 服务已重启。")
 	return nil
 }
 

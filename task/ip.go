@@ -189,16 +189,16 @@ func loadIPRanges() []*net.IPAddr {
 		}
 	} else { // 从文件中获取 IP 段数据
 		if IPFile == "" {
-			return ToNetAddr()
+			IPFile = defaultInputFile
 		}
 		file, err := os.Open(IPFile)
 		if err != nil {
-			log.Fatal(err)
+			return ToNetAddr()
 		}
 		defer func(file *os.File) {
 			err = file.Close()
 			if err != nil {
-
+				log.Fatal(err)
 			}
 		}(file)
 		scanner := bufio.NewScanner(file)
