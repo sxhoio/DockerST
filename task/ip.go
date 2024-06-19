@@ -117,7 +117,7 @@ func GetIPv4List() []string {
 }
 
 // ExcludeInvalid 排除不合格节点
-func (p *IPRangeList) ExcludeInvalid() []IPDelay {
+func (p *IPRangeList) ExcludeInvalid() *IPRangeList {
 	// 初始化一个空IPDelay切片
 	var delays []IPDelay
 	// 遍历IPRangeList的Delays切片
@@ -133,13 +133,14 @@ func (p *IPRangeList) ExcludeInvalid() []IPDelay {
 		// 将IPDelay的IP和Delay添加到delays切片中
 		delays = append(delays, IPDelay{IP: p.Ips[ip], Delay: delay.Delay, DownloadSpeed: 0})
 	}
-	return delays
+	p.Delays = delays
+	return p
 }
 
 // SortNodesDesc 按延迟降序排列
-func SortNodesDesc(p []IPDelay) []IPDelay {
-	sorted := make([]IPDelay, len(p))
-	_ = copy(sorted, p)
+func (p *IPRangeList) SortNodesDesc() []IPDelay {
+	sorted := make([]IPDelay, len(p.Delays))
+	_ = copy(sorted, p.Delays)
 	// 使用sort.Slice 对切片进行排序
 	sort.Slice(sorted, func(i, j int) bool {
 		return sorted[i].Delay < sorted[j].Delay

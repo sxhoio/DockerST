@@ -9,7 +9,6 @@ import (
 var (
 	VersionPrint bool
 	Version      string
-	DDownload    bool
 )
 
 func init() {
@@ -21,9 +20,10 @@ func init() {
 	flag.IntVar(&task.MinMS, "mis", 0, "只输出高于指定平均延迟的 IP")
 	flag.IntVar(&task.MaxMS, "mxs", 1000, "只输出低于指定平均延迟的 IP")
 	flag.IntVar(&task.DownloadNum, "dn", 10, "下载数量")
-	flag.StringVar(&task.DownloadUrl, "url", "https://github.com", "默认文件下载地址")
+	flag.StringVar(&task.URL, "url", "https://cf.xiu2.xyz/url", "默认文件下载地址")
+	flag.Float64Var(&task.MinSpeed, "md", 0, "最低下载速度")
 	flag.BoolVar(&task.TestAll, "ta", false, "测试所有 IP")
-	flag.BoolVar(&DDownload, "du", false, "禁止下载")
+	flag.BoolVar(&task.Disable, "dd", true, "禁止下载")
 	flag.BoolVar(&VersionPrint, "v", false, "输出版本")
 	flag.BoolVar(&task.IsOff, "om", false, "不下载子网列表")
 	flag.Parse()
@@ -40,18 +40,12 @@ func main() {
 	task.InitRandSeed()
 	// 输出版本
 	fmt.Printf("# DockerST %s \n", Version)
-	pingData := task.CreateData().Run().ExcludeInvalid()
-	// 按照延迟排序
-	sortedPingData := task.SortNodesDesc(pingData)
-	// 仅输出前10个结果
-	for i, ipDelay := range sortedPingData {
-		if i >= 10 {
-			break
+	pingData := task.CreateData().Run().ExcludeInvalid().SortNodesDesc()
+	DownloadData := task.TestDownloadSpeed(pingData)
+	for a, v := range DownloadData {
+		if a == 10 {
+			return
 		}
-		fmt.Printf("IP: %s, 延迟: %s\n", ipDelay.IP.String(), ipDelay.Delay)
-	}
-
-	if DDownload {
-
+		fmt.Printf("IP: %s, 延迟: %v, 下载速度: %.2f MB/s\n", v.IP.String(), v.Delay, v.DownloadSpeed)
 	}
 }

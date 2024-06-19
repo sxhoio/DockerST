@@ -59,36 +59,23 @@ func (p *IPRangeList) Run() *IPRangeList {
 
 // TCPing 通过TCP连接测试IP是否可用
 func TCPing(ip *net.IPAddr) (bool, time.Duration) {
-	var totalDuration time.Duration
-	var successCount int
-	for i := 0; i < 4; i++ { // 重试4次
-		func() {
-			startTime := time.Now()
-			var fullAddress string
-			if IsIpv4(ip.String()) {
-				fullAddress = fmt.Sprintf("%s:%d", ip.String(), TcpPort)
-			} else {
-				fullAddress = fmt.Sprintf("[%s]:%d", ip.String(), TcpPort)
-			}
-			conn, err := net.DialTimeout("tcp", fullAddress, TcpConnectTimeOut)
-			if err != nil {
-				return
-			}
-			defer func() {
-				err = conn.Close()
-				if err != nil {
-				}
-			}()
-			duration := time.Since(startTime)
-			totalDuration += duration
-			successCount++
-		}()
+	startTime := time.Now()
+	var fullAddress string
+	if IsIpv4(ip.String()) {
+		fullAddress = fmt.Sprintf("%s:%d", ip.String(), TcpPort)
+	} else {
+		fullAddress = fmt.Sprintf("[%s]:%d", ip.String(), TcpPort)
 	}
-
-	if successCount == 0 { // 如果所有尝试都失败，返回 false 和 0
+	conn, err := net.DialTimeout("tcp", fullAddress, TcpConnectTimeOut)
+	if err != nil {
 		return false, 0
 	}
+	defer func(conn net.Conn) {
+		err := conn.Close()
+		if err != nil {
 
-	averageDuration := totalDuration / time.Duration(successCount) // 计算平均持续时间
-	return true, averageDuration
+		}
+	}(conn)
+	duration := time.Since(startTime)
+	return true, duration
 }
