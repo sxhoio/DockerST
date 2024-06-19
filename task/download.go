@@ -1,14 +1,15 @@
 package task
 
 import (
+	"DockerST/utils"
 	"context"
 	"fmt"
 	"github.com/VividCortex/ewma"
-	"github.com/schollz/progressbar/v3"
 	"io"
 	"net"
 	"net/http"
 	"sort"
+	"strconv"
 	"time"
 )
 
@@ -22,72 +23,81 @@ const (
 )
 
 var (
-	URL         = defaultURL
-	Timeout     = defaultTimeout
-	Disable     = defaultDisableDownload
-	DownloadNum = defaultTestNum
-	MinSpeed    = defaultMinSpeed
+	URL     = defaultURL
+	Timeout = defaultTimeout
+	Disable = defaultDisableDownload
+
+	TestCount = defaultTestNum
+	MinSpeed  = defaultMinSpeed
 )
 
-type BySpeed []IPDelay
+func checkDownloadDefault() {
+	if URL == "" {
+		URL = defaultURL
+	}
+	if Timeout <= 0 {
+		Timeout = defaultTimeout
+	}
+	if TestCount <= 0 {
+		TestCount = defaultTestNum
+	}
+	if MinSpeed <= 0.0 {
+		MinSpeed = defaultMinSpeed
+	}
+}
 
-func TestDownloadSpeed(p []IPDelay) []IPDelay {
+func TestDownloadSpeed(ipSet utils.PingDelaySet) (speedSet utils.DownloadSpeedSet) {
+	checkDownloadDefault()
 	if Disable {
-		return p
+		return utils.DownloadSpeedSet(ipSet)
 	}
-	if len(p) <= 0 { // IP数组长度(IP数量) 大于 0 时才会继续下载测速
+	if len(ipSet) <= 0 { // IP数组长度(IP数量) 大于 0 时才会继续下载测速
 		fmt.Println("\n[信息] 延迟测速结果 IP 数量为 0，跳过下载测速。")
-		return p
+		return
 	}
-	speedSet := make([]IPDelay, 0)
-	testNum := DownloadNum
-	if len(p) < DownloadNum || MinSpeed > 0 { // 如果IP数组长度(IP数量) 小于下载测速数量（-dn），则次数修正为IP数
-		testNum = len(p)
+	testNum := TestCount
+	if len(ipSet) < TestCount || MinSpeed > 0 { // 如果IP数组长度(IP数量) 小于下载测速数量（-dn），则次数修正为IP数
+		testNum = len(ipSet)
 	}
-	if testNum < DownloadNum {
-		DownloadNum = testNum
+	if testNum < TestCount {
+		TestCount = testNum
 	}
-	fmt.Printf("开始下载测速（下限：%.2f MB/s, 数量：%d, 队列：%d）\n", MinSpeed, DownloadNum, testNum)
-	// 创建进度条
-	bar := progressbar.NewOptions(len(p),
-		progressbar.OptionSetWidth(50),
-		progressbar.OptionSetDescription("下载测速"),
-		progressbar.OptionShowCount(),
-		progressbar.OptionShowIts(),
-	)
+
+	fmt.Printf("开始下载测速（下限：%.2f MB/s, 数量：%d, 队列：%d）\n", MinSpeed, TestCount, testNum)
+	// 控制 下载测速进度条 与 延迟测速进度条 长度一致（强迫症）
+	bar_a := len(strconv.Itoa(len(ipSet)))
+	bar_b := "     "
+	for i := 0; i < bar_a; i++ {
+		bar_b += " "
+	}
+	bar := utils.NewBar(TestCount, bar_b, "")
 	for i := 0; i < testNum; i++ {
-		speed := downloadHandler(p[i].IP)
-		p[i].DownloadSpeed = speed
+		speed := downloadHandler(ipSet[i].IP)
+		ipSet[i].DownloadSpeed = speed
 		// 在每个 IP 下载测速后，以 [下载速度下限] 条件过滤结果
 		if speed >= MinSpeed*1024*1024 {
-			p[i].DownloadSpeed = speed
-			err := bar.Add(1)
-			if err != nil {
-				return nil
+			bar.Grow(1, "")
+			speedSet = append(speedSet, ipSet[i]) // 高于下载速度下限时，添加到新数组中
+			if len(speedSet) == TestCount {       // 凑够满足条件的 IP 时（下载测速数量 -dn），就跳出循环
+				break
 			}
-		} else {
-			p = p[:i]
-			break
 		}
 	}
-	err := bar.Finish()
-	if err != nil {
-		return nil
-	}
+	bar.Done()
 	if len(speedSet) == 0 { // 没有符合速度限制的数据，返回所有测试数据
-		speedSet = p
+		speedSet = utils.DownloadSpeedSet(ipSet)
 	}
 	// 按速度排序
-	sort.Sort(BySpeed(speedSet))
-	return speedSet
+	sort.Sort(speedSet)
+	return
 }
 
 func getDialContext(ip *net.IPAddr) func(ctx context.Context, network, address string) (net.Conn, error) {
 	var fakeSourceAddr string
-	if IsIpv4(ip.String()) {
-		fakeSourceAddr = fmt.Sprintf("%s:%d", ip.String(), TcpPort)
+	if isIPv4(ip.String()) {
+		fakeSourceAddr = fmt.Sprintf("%s:%d", ip.String(), TCPPort)
 	} else {
-		fakeSourceAddr = fmt.Sprintf("[%s]:%d", ip.String(), TcpPort)
+		fakeSourceAddr = fmt.Sprintf("[%s]:%d", ip.String(), TCPPort)
 	}
 	return func(ctx context.Context, network, address string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, network, fakeSourceAddr)
@@ -120,11 +130,7 @@ func downloadHandler(ip *net.IPAddr) float64 {
 	if err != nil {
 		return 0.0
 	}
-	defer func(Body io.ReadCloser) {
-		err = Body.Close()
-		if err != nil {
-		}
-	}(response.Body)
+	defer response.Body.Close()
 	if response.StatusCode != 200 {
 		return 0.0
 	}
@@ -165,14 +171,11 @@ func downloadHandler(ip *net.IPAddr) float64 {
 				break
 			}
 			// 获取上个时间片
-			lastTimeSlice := timeStart.Add(timeSlice * time.Duration(timeCounter-1))
+			last_time_slice := timeStart.Add(timeSlice * time.Duration(timeCounter-1))
 			// 下载数据量 / (用当前时间 - 上个时间片/ 时间片)
-			e.Add(float64(contentRead-lastContentRead) / (float64(currentTime.Sub(lastTimeSlice)) / float64(timeSlice)))
+			e.Add(float64(contentRead-lastContentRead) / (float64(currentTime.Sub(last_time_slice)) / float64(timeSlice)))
 		}
 		contentRead += int64(bufferRead)
 	}
 	return e.Value() / (Timeout.Seconds() / 120)
 }
-func (a BySpeed) Len() int           { return len(a) }
-func (a BySpeed) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-func (a BySpeed) Less(i, j int) bool { return a[i].DownloadSpeed > a[j].DownloadSpeed } // 这里使用 > 使其降序排序
