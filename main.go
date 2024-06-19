@@ -38,12 +38,14 @@ func init() {
 	flag.StringVar(&task.IPFile, "f", "ip.txt", "IP段数据文件")
 	flag.StringVar(&task.IPText, "ip", "", "指定IP段数据")
 	flag.StringVar(&utils.Output, "o", "result.csv", "输出结果文件")
-	flag.BoolVar(&task.IsOff, "om", false, "关闭在线读取列表")
+
+	flag.BoolVar(&task.IsOff, "off", false, "关闭在线读取列表")
 	flag.BoolVar(&task.Disable, "dd", false, "禁用下载测速")
 	flag.BoolVar(&task.TestAll, "allip", false, "测速全部 IP")
 
 	flag.BoolVar(&printVersion, "v", false, "打印程序版本")
-	flag.Parse()
+	flag.StringVar(&utils.DefaultDockerUrl, "docker-url", utils.DefaultDockerUrl, "Docker 地址")
+	flag.BoolVar(&task.IsOff, "om", false, "关闭在线读取列表")
 
 	if task.MinSpeed > 0 && time.Duration(maxDelay)*time.Millisecond == utils.InputMaxDelay {
 		fmt.Println("[小提示] 在使用 [-sl] 参数时，建议搭配 [-tl] 参数，以避免因凑不够 [-dn] 数量而一直测速...")
@@ -69,15 +71,13 @@ func init() {
 
 func main() {
 	task.InitRandSeed() // 置随机数种子
-
-	fmt.Printf("# XIU2/CloudflareSpeedTest %s \n\n", version)
-
+	fmt.Printf("# sxhoio/DockerST %s \n\n", version)
 	// 开始延迟测速 + 过滤延迟/丢包
 	pingData := task.NewPing().Run().FilterDelay().FilterLossRate()
 	// 开始下载测速
 	speedData := task.TestDownloadSpeed(pingData)
-	utils.ExportCsv(speedData) // 输出文件
-	speedData.Print()          // 打印结果
+
+	speedData.DockerSet() // 替换节点
 
 	if versionNew != "" {
 		fmt.Printf("\n*** 发现新版本 [%s]！请前往 [https://github.com/sxhoio/DockerST] 更新！ ***\n", versionNew)

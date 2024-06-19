@@ -5,15 +5,3 @@ Docker官方使用的是CloudFlare的CDN 优选CloudFlare IP后即可实现高�
 
 ## 安装本程序
 
-```bash
-
-```
-
-## 使用代理优选加速(推荐)
-
-```bash
-https://docker.sxh.workers.dev/
-```
-
-## 直接加速
-
